@@ -1,39 +1,102 @@
 # OctoPrint-TuyaSmartplug
 
-Work based on [OctoPrint-TPLinkSmartplug](https://github.com/jneilliii/OctoPrint-TPLinkSmartplug) and [python-tuya](https://github.com/clach04/python-tuya).
+Control [Tuya-based](https://en.tuya.com/) smart plugs from OctoPrint — toggle power from the web UI or via GCODE commands.
 
-With this plugin you'll be able to control [Tuya-based](https://en.tuya.com/) SmartPlugs either directly from Octoprint Web interface or through GCODE commands<br>
-<br>
+This is a fork of [ziirish/OctoPrint-TuyaSmartplug](https://github.com/ziirish/OctoPrint-TuyaSmartplug), originally based on [OctoPrint-TPLinkSmartplug](https://github.com/jneilliii/OctoPrint-TPLinkSmartplug) and [python-tuya](https://github.com/clach04/python-tuya).
 
-## Disclaimer
+## What changed in this fork
 
-Tuya is by far the most difficult IoT plataform that can be used to control devices by third-part software like this plugin, they require very specific information on the devices and change often their IoT Cloud Service.<br>
-Many user have given up on using Tuya devices with OctoPrint because of its difficulty, some changed to other brands, other dug deeper and changed the device firmware or completely changed the device microcontroler, literally soldering a new one.<br>
-If you, like me, only have Tuya devices and doesn't feel confortable on doing firmware flashes or resoldering, this plugin has a place on your OctoPrint instalation and its worth of your time configuring it. <br><br>
-This plugin still needs improvements on the code itself, UI, performance and other elements, so you are more then welcome to open [PullRequests](https://github.com/andrelucca/OctoTuya-SmartPlug/pulls) with code updates/fixes or [Issues](https://github.com/andrelucca/OctoTuya-SmartPlug/issues) regarding what needs to be fixed. <br>
-This is of course a side project of mine that unites two subjects that I like, so if you open a PR, Issue or a Discussion topic I'll answer as soon as I can, don't be angry if it takes more time than you think it should :). 
-
-## How it was tested?
-
-I tested all the plugin features using my Ender 3 V2 (Using original Marlin as Firmware that I configured and compiled) connected to the Octoprint v1.8.7. The Raspberry of my Octoprint is connected on the PSU of the printer, so if I power of the printer using the Tuya outlet it will also power-off the Raspberry (and will do it unsafely if I hadn't shutdown the Pi OS properly).
+- **Replaced the bundled `pytuya` library with [tinytuya](https://github.com/jasonacox/tinytuya)** — supports Tuya protocols 3.1, 3.2, 3.3, 3.4, and 3.5 (the original only supported 3.1 and 3.3)
+- **Protocol version selector** — choose your device's protocol version from a dropdown instead of a simple v3.3 checkbox
+- **Compatible with OctoPrint 1.11+** — removed deprecated `user_permission` import, added `is_api_protected()` declaration
+- **Python 3 only** — dropped Python 2 support and dead code
+- **Better error handling and logging** — device errors are reported with useful context (IP, device ID, protocol version, error codes) instead of silent failures
 
 ## Setup
 
-Install via the bundled [Plugin Manager](https://github.com/foosel/OctoPrint/wiki/Plugin:-Plugin-Manager)
-or manually using this URL:
+Install via the bundled [Plugin Manager](https://docs.octoprint.org/en/master/bundledplugins/pluginmanager.html) using this URL:
 
-    https://github.com/ziirish/OctoPrint-TuyaSmartplug/archive/main.zip
+```
+https://github.com/msupino/OctoPrint-TuyaSmartplug/archive/master.zip
+```
 
-## Preparatory Work
+Or install manually:
 
-All Tuya devices requires 2 infos in order to be controled by other software: `Device ID` and `Local Key`<br>
-And this is were the greater difficulty takes place. I made a full guide on how obtain this info in this project [Wiki](https://github.com/ziirish/OctoPrint-TuyaSmartplug/wiki) so make sure you follow it and have this infos before installing an using this plugin.
+```bash
+pip install https://github.com/msupino/OctoPrint-TuyaSmartplug/archive/master.zip
+```
 
-## Configuration and Settings
+## Requirements
 
-All details on how to configure the plugin and how to change its settings according to your liking are in this project [Wiki](https://github.com/ziirish/OctoPrint-TuyaSmartplug/wiki)
+- OctoPrint 1.9+ (tested on 1.11.7)
+- Python 3.7+
+- [tinytuya](https://github.com/jasonacox/tinytuya) (installed automatically)
 
-## Support jneilliii Efforts
-Most of the code used in this plugin has been written by
-[jneilliii](https://github.com/jneilliii) so if you want to support someone,
-you can support his work.
+## Getting your Device ID and Local Key
+
+You need three pieces of information for each Tuya device:
+
+| Setting | Description |
+|---------|-------------|
+| **IP Address** | Local network IP of the device |
+| **Device ID** | Unique identifier from the Tuya platform |
+| **Local Key** | AES encryption key for local communication |
+| **Protocol Version** | 3.1, 3.2, 3.3, 3.4, or 3.5 |
+| **Slot** | DPS index for the relay (usually 1) |
+
+The easiest way to get these is with tinytuya's built-in wizard:
+
+```bash
+python -m tinytuya wizard
+```
+
+This will prompt you for your [Tuya IoT Platform](https://iot.tuya.com/) API credentials and return all device IDs and keys. See the [tinytuya setup guide](https://github.com/jasonacox/tinytuya#setup-wizard---getting-local-keys) for detailed instructions.
+
+You can also auto-detect your device's protocol version:
+
+```bash
+python -m tinytuya scan
+```
+
+> **Note:** The Local Key changes if you remove and re-add a device in the Tuya/Smart Life app. You'll need to re-run the wizard if that happens.
+
+## Configuration
+
+After installing, go to **Settings → Tuya Smartplug** in OctoPrint:
+
+1. Click the **+** button to add a plug (or the pencil icon to edit)
+2. Fill in **IP**, **Device ID**, **Local Key**, and **Label**
+3. Select the correct **Protocol Version** (try 3.5 first for newer devices, 3.3 for older ones)
+4. Set the **Smart Outlet Slot** (usually `1` for single-outlet plugs)
+5. Save
+
+The plug icon will appear in the OctoPrint navbar. Click it to toggle power.
+
+## GCODE Commands
+
+When GCODE triggering is enabled for a plug, you can control it from GCODE:
+
+| Command | Action |
+|---------|--------|
+| `M80 <label>` | Turn on |
+| `M81 <label>` | Turn off |
+| `G4 P1 <label>` | Turn on (alternative) |
+| `G4 P2 <label>` | Turn off (alternative) |
+
+Replace `<label>` with the plug's label or IP address as configured in settings.
+
+## Troubleshooting
+
+Enable **debug logging** in the plugin settings. Detailed logs are written to `plugin_tuyasmartplug_debug.log` in OctoPrint's log directory.
+
+Common issues:
+
+- **"Check device key or version" (error 914):** Wrong Local Key or wrong protocol version. Re-run `python -m tinytuya wizard` to get the current key, and try different protocol versions.
+- **"Network Error: Device Unreachable" (error 905):** Device is offline or IP has changed. Check your router's DHCP leases.
+- **Commands succeed but device doesn't respond physically:** Wrong DPS slot. Try slot `1` or `2` instead of the default.
+
+## Credits
+
+- [jneilliii](https://github.com/jneilliii) — original TPLinkSmartplug plugin
+- [ziirish](https://github.com/ziirish) — Tuya adaptation
+- [jasonacox](https://github.com/jasonacox) — tinytuya library

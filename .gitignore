@@ -8,3 +8,4 @@ dist
 .DS_Store
 *.zip
 .ropeproject
+.ruff_cache
