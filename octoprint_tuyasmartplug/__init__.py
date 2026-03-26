@@ -563,9 +563,11 @@ class tuyasmartplugPlugin(
     def _find_plug_by_name(self, name):
         plug = self.plug_search(self._settings.get(["arrSmartplugs"]), "ip", name)
         if not plug:
-            plug = self.plug_search(
-                self._settings.get(["arrSmartplugs"]), "label", name
-            )
+            plugs = self._settings.get(["arrSmartplugs"])
+            for item in plugs:
+                if item["label"].upper() == name.upper():
+                    plug = item
+                    break
         return plug
 
     def _gcode_power(self, cmd_name, name, action):
