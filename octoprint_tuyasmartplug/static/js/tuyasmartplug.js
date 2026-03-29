@@ -17,7 +17,13 @@ $(function () {
         self.processing = ko.observableArray([]);
 
         self.onBeforeBinding = function () {
-            self.arrSmartplugs(self.settings.settings.plugins.tuyasmartplug.arrSmartplugs());
+            var plugs = self.settings.settings.plugins.tuyasmartplug.arrSmartplugs();
+            ko.utils.arrayForEach(plugs, function (plug) {
+                if (plug.linkedPlugs === undefined) {
+                    plug.linkedPlugs = ko.observable("");
+                }
+            });
+            self.arrSmartplugs(plugs);
         };
 
         self.onAfterBinding = function () {
