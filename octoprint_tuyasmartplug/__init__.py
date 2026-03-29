@@ -65,6 +65,7 @@ class tuyasmartplugPlugin(
                     "autoConnectDelay": 10.0,
                     "autoDisconnect": True,
                     "autoDisconnectDelay": 0,
+                    "linkedPlugs": "",
                     "sysCmdOn": False,
                     "sysRunCmdOn": "",
                     "sysCmdOnDelay": 0,
@@ -141,7 +142,7 @@ class tuyasmartplugPlugin(
 
     # ~~ SimpleApiPlugin mixin
 
-    def turn_on(self, pluglabel):
+    def turn_on(self, pluglabel, _from_link=False):
         self._logger.info("Turning on '%s'.", pluglabel)
         if self.is_turned_on(pluglabel=pluglabel):
             self._logger.info("Plug '%s' already on.", pluglabel)
@@ -177,7 +178,10 @@ class tuyasmartplugPlugin(
                 self._identifier, dict(currentState="unknown", label=pluglabel)
             )
 
-    def turn_off(self, pluglabel):
+        if not _from_link:
+            self._trigger_linked(plug, "on")
+
+    def turn_off(self, pluglabel, _from_link=False):
         self._logger.info("Turning off '%s'.", pluglabel)
         if not self.is_turned_on(pluglabel=pluglabel):
             self._logger.info("Plug '%s' already off.", pluglabel)
@@ -212,6 +216,29 @@ class tuyasmartplugPlugin(
             self._plugin_manager.send_plugin_message(
                 self._identifier, dict(currentState="unknown", label=pluglabel)
             )
+
+        if not _from_link:
+            self._trigger_linked(plug, "off")
+
+    def _trigger_linked(self, plug, action):
+        linked = plug.get("linkedPlugs", "")
+        if not linked:
+            return
+        for label in linked.split(","):
+            label = label.strip()
+            if not label:
+                continue
+            target = self.plug_search(
+                self._settings.get(["arrSmartplugs"]), "label", label
+            )
+            if not target:
+                self._logger.warning("Linked plug '%s' not found.", label)
+                continue
+            self._logger.info("Linked: %s '%s'.", action, label)
+            if action == "on":
+                threading.Thread(target=self.turn_on, args=[label], kwargs={"_from_link": True}).start()
+            else:
+                threading.Thread(target=self.turn_off, args=[label], kwargs={"_from_link": True}).start()
 
     def check_status(self, pluglabel, resp=None):
         self._logger.debug("Checking status of '%s'.", pluglabel)

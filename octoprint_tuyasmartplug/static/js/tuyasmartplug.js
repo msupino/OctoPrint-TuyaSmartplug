@@ -74,6 +74,7 @@ $(function () {
                 useCountdownRules: ko.observable(false),
                 countdownOnDelay: ko.observable(0),
                 countdownOffDelay: ko.observable(0),
+                linkedPlugs: ko.observable(""),
             });
             self.settings.settings.plugins.tuyasmartplug.arrSmartplugs.push(
                 self.selectedPlug()
