@@ -292,10 +292,16 @@ class tuyasmartplugPlugin(
 
     @staticmethod
     def _get_slots(plug):
-        raw = plug.get("slot", 1)
-        if isinstance(raw, str) and "," in raw:
-            return [int(s.strip()) for s in raw.split(",")]
-        return [int(raw)]
+        raw = str(plug.get("slot", 1))
+        slots = []
+        for part in raw.split(","):
+            part = part.strip()
+            if "-" in part:
+                start, end = part.split("-", 1)
+                slots.extend(range(int(start), int(end) + 1))
+            else:
+                slots.append(int(part))
+        return slots
 
     def plug_search(self, lst, key, value):
         for item in lst:
