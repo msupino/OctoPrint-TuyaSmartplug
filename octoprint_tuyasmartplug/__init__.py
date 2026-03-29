@@ -241,7 +241,10 @@ class tuyasmartplugPlugin(
         plug = self.plug_search(
             self._settings.get(["arrSmartplugs"]), "label", pluglabel
         )
-        return data and plug and data.get("dps", {}).get(str(plug["slot"]))
+        if not data or not plug:
+            return False
+        primary_slot = self._get_slots(plug)[0]
+        return data.get("dps", {}).get(str(primary_slot))
 
     def is_api_protected(self):
         return True
@@ -259,6 +262,13 @@ class tuyasmartplugPlugin(
             self.check_status("{label}".format(**data))
 
     # ~~ Utilities
+
+    @staticmethod
+    def _get_slots(plug):
+        raw = plug.get("slot", 1)
+        if isinstance(raw, str) and "," in raw:
+            return [int(s.strip()) for s in raw.split(",")]
+        return [int(raw)]
 
     def plug_search(self, lst, key, value):
         for item in lst:
@@ -334,19 +344,21 @@ class tuyasmartplugPlugin(
             self._logger.error("No such command '%s'", command)
             return False
 
+        slots = self._get_slots(plug)
         self._logger.debug(
             "Calling device.%s(%s)",
             command,
             ("args=%s" % args)
             if args
-            else ("arg=%s, slot=%s" % (arg, plug["slot"]))
+            else ("arg=%s, slots=%s" % (arg, slots))
             if arg is not None
             else "",
         )
         if args:
             result = func(args)
         elif arg is not None:
-            result = func(arg, plug["slot"])
+            for slot in slots:
+                result = func(arg, slot)
         else:
             result = func()
 
@@ -381,10 +393,10 @@ class tuyasmartplugPlugin(
                 return False
 
         self._logger.debug(
-            "Connecting: ip=%s, id=%s, slot=%s, v%.1f",
+            "Connecting: ip=%s, id=%s, slots=%s, v%.1f",
             plug["ip"],
             plug["id"],
-            plug["slot"],
+            self._get_slots(plug),
             version,
         )
 
@@ -466,7 +478,7 @@ class tuyasmartplugPlugin(
 
     def _listener_loop(self, plug):
         label = plug["label"]
-        slot = str(plug["slot"])
+        slot = str(self._get_slots(plug)[0])
         reconnect_delay = 5
         last_state = None
 
