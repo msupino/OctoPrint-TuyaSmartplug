@@ -22,6 +22,8 @@ class tuyasmartplugPlugin(
     def on_startup(self, host, port):
         self._listeners = {}
         self._listener_stop = threading.Event()
+        self._listener_stop_per_plug = {}
+        self._listener_devices = {}
 
     def on_after_startup(self):
         self._logger.info("TuyaSmartplug loaded! (tinytuya %s)", tinytuya.version)
@@ -419,10 +421,14 @@ class tuyasmartplugPlugin(
             self._logger.error("Plug '%s' not found in settings!", pluglabel)
             return False
 
+        if tries == 1:
+            self._pause_plug_listener(pluglabel)
+
         version = self._get_protocol_version(plug)
         if version is None:
             version = self._auto_detect_version(plug)
             if version is None:
+                self._resume_plug_listener(pluglabel)
                 return False
 
         self._logger.debug(
@@ -439,6 +445,7 @@ class tuyasmartplugPlugin(
             ret = self._exec_device_command(device, cmd, plug, args)
 
             if ret is False:
+                self._resume_plug_listener(pluglabel)
                 return False
 
             if isinstance(ret, dict) and "Error" in ret:
@@ -456,8 +463,10 @@ class tuyasmartplugPlugin(
                 self._logger.error(
                     "Plug '%s': gave up after %d attempts.", pluglabel, tries
                 )
+                self._resume_plug_listener(pluglabel)
                 return False
 
+            self._resume_plug_listener(pluglabel)
             return ret
         except Exception as e:
             self._logger.error(
@@ -473,6 +482,7 @@ class tuyasmartplugPlugin(
                 self._logger.debug("Retrying (%d/3)...", tries)
                 time.sleep(1)
                 return self.sendCommand(cmd, pluglabel, args, tries + 1)
+            self._resume_plug_listener(pluglabel)
             self._logger.error(
                 "Plug '%s': gave up after %d attempts.", pluglabel, tries
             )
@@ -489,6 +499,9 @@ class tuyasmartplugPlugin(
                     label not in self._listeners
                     or not self._listeners[label].is_alive()
                 ):
+                    if label not in self._listener_stop_per_plug:
+                        self._listener_stop_per_plug[label] = threading.Event()
+                    self._listener_stop_per_plug[label].clear()
                     t = threading.Thread(
                         target=self._listener_loop,
                         args=(dict(plug),),
@@ -501,13 +514,60 @@ class tuyasmartplugPlugin(
 
     def _stop_listeners(self):
         self._listener_stop.set()
+        for ev in self._listener_stop_per_plug.values():
+            ev.set()
         self._listeners.clear()
+        self._listener_devices.clear()
         self._logger.info("Stopped all listeners.")
+
+    def _pause_plug_listener(self, label):
+        ev = self._listener_stop_per_plug.get(label)
+        if ev:
+            ev.set()
+        dev = self._listener_devices.pop(label, None)
+        if dev:
+            try:
+                dev.close()
+            except Exception:
+                pass
+        t = self._listeners.get(label)
+        if t and t.is_alive():
+            t.join(timeout=3)
+
+    def _resume_plug_listener(self, pluglabel):
+        plug = self.plug_search(
+            self._settings.get(["arrSmartplugs"]), "label", pluglabel
+        )
+        if not plug or not plug.get("ip") or not plug.get("localKey"):
+            return
+        if pluglabel not in self._listener_stop_per_plug:
+            self._listener_stop_per_plug[pluglabel] = threading.Event()
+        self._listener_stop_per_plug[pluglabel].clear()
+        t = threading.Thread(
+            target=self._listener_loop,
+            args=(dict(plug),),
+            daemon=True,
+            name="tuya-listener-%s" % pluglabel,
+        )
+        self._listeners[pluglabel] = t
+        t.start()
 
     def _restart_listeners(self):
         self._stop_listeners()
         time.sleep(1)
         self._start_listeners()
+
+    def _should_stop_listener(self, label):
+        if self._listener_stop.is_set():
+            return True
+        ev = self._listener_stop_per_plug.get(label)
+        return ev and ev.is_set()
+
+    def _wait_listener(self, label, timeout):
+        ev = self._listener_stop_per_plug.get(label)
+        if ev and ev.wait(timeout):
+            return True
+        return self._listener_stop.is_set()
 
     def _listener_loop(self, plug):
         label = plug["label"]
@@ -515,7 +575,7 @@ class tuyasmartplugPlugin(
         reconnect_delay = 5
         last_state = None
 
-        while not self._listener_stop.is_set():
+        while not self._should_stop_listener(label):
             version = self._get_protocol_version(plug)
             if version is None:
                 version = self._auto_detect_version(plug)
@@ -523,7 +583,7 @@ class tuyasmartplugPlugin(
                     self._logger.warning(
                         "Listener '%s': cannot detect version, retrying in 30s.", label
                     )
-                    if self._listener_stop.wait(30):
+                    if self._wait_listener(label, 30):
                         return
                     continue
 
@@ -531,6 +591,7 @@ class tuyasmartplugPlugin(
                 device = self._make_device(plug, version)
                 device.set_socketPersistent(True)
                 device.set_socketTimeout(10)
+                self._listener_devices[label] = device
 
                 initial = device.status()
                 if isinstance(initial, dict) and "dps" in initial:
@@ -549,7 +610,8 @@ class tuyasmartplugPlugin(
                         "Listener '%s': initial status failed: %s", label, initial
                     )
                     device.close()
-                    if self._listener_stop.wait(reconnect_delay):
+                    self._listener_devices.pop(label, None)
+                    if self._wait_listener(label, reconnect_delay):
                         return
                     reconnect_delay = min(reconnect_delay * 2, 60)
                     continue
@@ -557,7 +619,7 @@ class tuyasmartplugPlugin(
                 device.set_sendWait(0)
                 heartbeat_interval = 9
 
-                while not self._listener_stop.is_set():
+                while not self._should_stop_listener(label):
                     data = device.receive()
                     self._logger.debug("Listener '%s': received %s", label, data)
 
@@ -579,11 +641,13 @@ class tuyasmartplugPlugin(
                                 )
 
                     device.heartbeat()
-                    if self._listener_stop.wait(heartbeat_interval):
+                    if self._wait_listener(label, heartbeat_interval):
                         device.close()
+                        self._listener_devices.pop(label, None)
                         return
 
             except Exception as e:
+                self._listener_devices.pop(label, None)
                 self._logger.warning(
                     "Listener '%s': connection lost: %s [%s]. Reconnecting in %ds.",
                     label,
@@ -591,7 +655,7 @@ class tuyasmartplugPlugin(
                     type(e).__name__,
                     reconnect_delay,
                 )
-                if self._listener_stop.wait(reconnect_delay):
+                if self._wait_listener(label, reconnect_delay):
                     return
                 reconnect_delay = min(reconnect_delay * 2, 60)
 
