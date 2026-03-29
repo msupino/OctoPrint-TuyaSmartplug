@@ -88,10 +88,20 @@ class tuyasmartplugPlugin(
     def get_settings_restricted_paths(self):
         return dict(admin=[["arrSmartplugs"]])
 
+    def _plug_config_key(self, plug):
+        return (plug.get("ip"), plug.get("id"), plug.get("localKey"),
+                plug.get("slot"), plug.get("protocolVersion"))
+
     def on_settings_save(self, data):
+        old_plugs = self._settings.get(["arrSmartplugs"])
+        old_keys = {p.get("label"): self._plug_config_key(p) for p in old_plugs}
+
         octoprint.plugin.SettingsPlugin.on_settings_save(self, data)
 
         plugs = self._settings.get(["arrSmartplugs"])
+        new_keys = {p.get("label"): self._plug_config_key(p) for p in plugs}
+        config_changed = old_keys != new_keys
+
         self._logger.info("Settings saved, %d plug(s) configured.", len(plugs))
         for plug in plugs:
             if plug.get("label"):
@@ -103,6 +113,10 @@ class tuyasmartplugPlugin(
                     plug["slot"],
                     plug.get("protocolVersion", "?"),
                 )
+
+        if not config_changed:
+            return
+
         monitor = self._settings.get(["statusMonitor"])
         if monitor == "listener":
             self._restart_listeners()
